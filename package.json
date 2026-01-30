@@ -1,0 +1,15 @@
+{
+  "name": "dialogue-annotator",
+  "version": "1.0.0",
+  "description": "剧本台词标注工具 - 支持AI补全和评分标注",
+  "scripts": {
+    "validate": "node validate.js",
+    "test": "node validate.js"
+  },
+  "keywords": ["dialogue", "annotation", "ai", "tool"],
+  "author": "Micha'el",
+  "license": "MIT",
+  "devDependencies": {
+    "playwright": "^1.40.0"
+  }
+}
