@@ -5,7 +5,8 @@
  * 检验项目：
  * 1. JavaScript语法检查
  * 2. HTML结构检查
- * 3. 控制台错误检测（需要playwright）
+ * 3. 浏览器控制台错误检测（Playwright）
+ * 4. 代码质量检查（ESLint）
  */
 
 const fs = require('fs');
@@ -20,11 +21,8 @@ let warnings = [];
 
 function log(msg, type = 'info') {
     const colors = {
-        info: '\x1b[36m',   // 青色
-        success: '\x1b[32m', // 绿色
-        error: '\x1b[31m',   // 红色
-        warning: '\x1b[33m', // 黄色
-        reset: '\x1b[0m'
+        info: '\x1b[36m', success: '\x1b[32m', error: '\x1b[31m',
+        warning: '\x1b[33m', reset: '\x1b[0m'
     };
     console.log(`${colors[type]}[${type.toUpperCase()}]${colors.reset} ${msg}`);
 }
@@ -66,7 +64,6 @@ function checkHTMLStructure(htmlContent) {
         return false;
     }
     
-    // 检查必要的标签
     const requiredTags = ['<!DOCTYPE html>', '<html', '<head>', '<body>', '</html>'];
     for (const tag of requiredTags) {
         if (!htmlContent.includes(tag)) {
@@ -92,17 +89,20 @@ function checkCriticalFunctions(htmlContent) {
         'aiComplete()'
     ];
     
+    let missing = [];
     for (const func of requiredFunctions) {
         if (!htmlContent.includes(`function ${func.replace('()', '')}`)) {
-            errors.push(`缺少关键函数: ${func}`);
+            missing.push(func);
         }
     }
     
-    if (errors.filter(e => e.includes('缺少关键函数')).length === 0) {
-        log('关键函数检查✓', 'success');
-        return true;
+    if (missing.length > 0) {
+        errors.push(`缺少关键函数: ${missing.join(', ')}`);
+        return false;
     }
-    return false;
+    
+    log('关键函数检查✓', 'success');
+    return true;
 }
 
 function checkAPIConfigs(htmlContent) {
@@ -118,9 +118,7 @@ function checkAPIConfigs(htmlContent) {
     
     let configured = 0;
     for (const api of apiConfigs) {
-        if (api.pattern.test(htmlContent)) {
-            configured++;
-        }
+        if (api.pattern.test(htmlContent)) configured++;
     }
     
     log(`API配置检查✓ (${configured}/${apiConfigs.length}个)`, 'success');
@@ -128,19 +126,22 @@ function checkAPIConfigs(htmlContent) {
 }
 
 async function checkWithPlaywright() {
-    log('检查Playwright可用性...', 'info');
+    log('正在运行浏览器测试...', 'info');
     
     try {
         const playwright = require('playwright');
-        log('Playwright可用，正在进行浏览器测试...', 'info');
         
-        const browser = await playwright.chromium.launch();
+        const browser = await playwright.chromium.launch({ headless: true });
         const page = await browser.newPage();
         
         const consoleErrors = [];
+        const consoleWarnings = [];
+        
         page.on('console', msg => {
             if (msg.type() === 'error') {
                 consoleErrors.push(msg.text());
+            } else if (msg.type() === 'warning') {
+                consoleWarnings.push(msg.text());
             }
         });
         
@@ -151,12 +152,20 @@ async function checkWithPlaywright() {
         await page.goto(`file://${HTML_FILE}`);
         await page.waitForTimeout(2000);
         
+        // 检查页面是否正常加载
+        const title = await page.title();
+        log(`页面标题: ${title}`, 'info');
+        
         await browser.close();
         
         if (consoleErrors.length > 0) {
-            errors.push(`控制台错误: ${consoleErrors.join('; ')}`);
+            errors.push(`控制台错误 (${consoleErrors.length}个): ${consoleErrors.join('; ')}`);
             log(`发现${consoleErrors.length}个控制台错误`, 'error');
             return false;
+        }
+        
+        if (consoleWarnings.length > 0) {
+            warnings.push(`控制台警告: ${consoleWarnings[0]}`);
         }
         
         log('浏览器测试✓ (无控制台错误)', 'success');
@@ -168,7 +177,7 @@ async function checkWithPlaywright() {
         } else {
             log(`浏览器测试跳过: ${e.message}`, 'warning');
         }
-        return null; // 未执行，非成功也非失败
+        return null;
     }
 }
 
@@ -190,7 +199,7 @@ async function validate() {
     checkCriticalFunctions(htmlContent);
     checkAPIConfigs(htmlContent);
     
-    // 浏览器检验（可选）
+    // 浏览器检验
     await checkWithPlaywright();
     
     // 输出结果
