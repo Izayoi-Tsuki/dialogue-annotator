@@ -1,0 +1,1778 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>剧本台词标注工具</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f0f2f5; color: #333; }
+        .header { background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%); color: white; padding: 14px 24px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 8px rgba(0,0,0,0.12); }
+        .header h1 { font-size: 1.3rem; font-weight: 500; display: flex; align-items: center; gap: 10px; }
+        .header-actions { display: flex; gap: 8px; }
+        .btn { padding: 7px 14px; border: none; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 500; transition: all 0.2s; }
+        .btn-primary { background: #3498db; color: white; }
+        .btn-primary:hover { background: #2980b9; transform: translateY(-1px); }
+        .btn-success { background: #27ae60; color: white; }
+        .btn-success:hover { background: #219a52; transform: translateY(-1px); }
+        .btn-danger { background: #e74c3c; color: white; }
+        .btn-danger:hover { background: #c0392b; }
+        .btn-secondary { background: rgba(255,255,255,0.15); color: white; border: 1px solid rgba(255,255,255,0.2); }
+        .btn-secondary:hover { background: rgba(255,255,255,0.25); }
+        .btn-warning { background: #f39c12; color: white; }
+        .btn-warning:hover { background: #e67e22; transform: translateY(-1px); }
+        .ollama-panel { background: #34495e; padding: 15px 24px; display: none; color: white; gap: 15px; flex-wrap: wrap; }
+        .ollama-panel.show { display: flex; flex-direction: column; }
+        .ollama-panel label { font-size: 0.85rem; }
+        .ollama-panel input, .ollama-panel select { padding: 6px 10px; border-radius: 4px; border: none; font-size: 0.85rem; }
+        .ollama-panel input:focus, .ollama-panel select:focus { outline: 2px solid #3498db; }
+        .main-container { display: flex; height: calc(100vh - 65px); }
+        .sidebar { width: 280px; background: white; border-right: 1px solid #e0e0e0; display: flex; flex-direction: column; }
+        .sidebar-header { padding: 16px 20px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
+        .sidebar-header span { font-weight: 500; color: #2c3e50; }
+        .sidebar-list { flex: 1; overflow-y: auto; padding: 10px; position: relative; }
+        .dialogue-item { 
+            padding: 12px 14px; border-radius: 8px; margin-bottom: 8px; cursor: grab; 
+            border: 2px solid transparent; transition: all 0.2s ease; background: #fafafa; 
+            position: relative; user-select: none;
+        }
+        .dialogue-item:hover { background: #f0f4f8; }
+        .dialogue-item.active { background: #e8f4fc; border-color: #3498db; }
+        .dialogue-item.dragging { 
+            opacity: 0.5; transform: scale(0.98); border-style: dashed; 
+            box-shadow: 0 8px 24px rgba(0,0,0,0.15); z-index: 100;
+        }
+        .dialogue-item.drag-over { 
+            border-color: #3498db; background: #e8f4fc; 
+            box-shadow: 0 0 0 2px rgba(52,152,219,0.3);
+        }
+        .dialogue-item.drag-placeholder {
+            border: 2px dashed #bdc3c7; background: #f8f9fa; min-height: 60px;
+        }
+        .dialogue-item .title { 
+            font-weight: 500; color: #2c3e50; margin-bottom: 6px; 
+            font-size: 0.95rem; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+        }
+        .dialogue-item .meta { font-size: 0.8rem; color: #7f8c8d; display: flex; justify-content: space-between; align-items: center; }
+        .dialogue-item .delete-btn { 
+            opacity: 0; padding: 4px 8px; border: none; border-radius: 4px; 
+            background: #e74c3c; color: white; cursor: pointer; font-size: 0.75rem; transition: all 0.2s;
+        }
+        .dialogue-item:hover .delete-btn { opacity: 1; }
+        .dialogue-item .delete-btn:hover { background: #c0392b; }
+        
+        /* 拖拽指示线 */
+        .drag-indicator {
+            position: absolute; height: 3px; 
+            background: #3498db; border-radius: 2px; pointer-events: none;
+            opacity: 0; transition: opacity 0.15s;
+            z-index: 100;
+        }
+        .drag-indicator.visible { opacity: 1; }
+        .editor { flex: 1; padding: 24px; overflow-y: auto; background: #f0f2f5; }
+        .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: #95a5a6; }
+        .empty-state h3 { margin-bottom: 8px; }
+        .card { background: white; border-radius: 12px; padding: 24px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid #eee; }
+        .card-header h3 { font-size: 1.1rem; color: #2c3e50; }
+        .mode-tabs { display: flex; gap: 8px; margin-bottom: 20px; }
+        .mode-tab { padding: 10px 20px; background: #ecf0f1; border: none; cursor: pointer; border-radius: 6px; font-size: 0.9rem; transition: all 0.2s; }
+        .mode-tab.active { background: #3498db; color: white; }
+        .lines-section { margin-bottom: 24px; }
+        .line-row { display: flex; align-items: flex-start; gap: 12px; padding: 12px; background: #f8f9fa; border-radius: 8px; margin-bottom: 10px; transition: all 0.2s; }
+        .line-row:hover { background: #f0f4f8; }
+        .line-row.active { background: #fff3cd; border: 1px solid #f39c12; }
+        .line-row.ai-generated { background: linear-gradient(135deg, #fafbfc 0%, #f0f4f8 100%); border-left: 3px solid #9b59b6; }
+        .line-row.ai-generated:hover { background: linear-gradient(135deg, #f5f7fa 0%, #e4ecf4 100%); }
+        .line-num { position: relative; display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; background: #3498db; color: white; border-radius: 50%; font-size: 0.75rem; flex-shrink: 0; cursor: pointer; transition: all 0.2s; }
+        .line-num:hover { transform: scale(1.1); }
+        .line-num.annotated { background: #27ae60; }
+        .line-num.selected { background: #f39c12; }
+        .line-num.ai-mark::after { content: ''; position: absolute; bottom: -2px; right: -2px; width: 10px; height: 10px; background: #9b59b6; border: 2px solid white; border-radius: 50%; }
+        .ai-tooltip { position: relative; }
+        .ai-tooltip:hover::before { content: attr(data-ai-model); position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); padding: 4px 8px; background: #333; color: white; font-size: 0.7rem; border-radius: 4px; white-space: nowrap; z-index: 100; margin-bottom: 4px; }
+        .ai-tooltip:hover::after { content: ''; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); border: 4px solid transparent; border-top-color: #333; margin-bottom: -4px; }
+        .line-num { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; background: #3498db; color: white; border-radius: 50%; font-size: 0.8rem; flex-shrink: 0; cursor: pointer; transition: all 0.2s; }
+        .line-num:hover { transform: scale(1.1); }
+        .line-num.annotated { background: #27ae60; }
+        .line-num.selected { background: #f39c12; }
+        .line-inputs { flex: 1; display: flex; gap: 12px; }
+        .line-inputs input { padding: 10px 14px; border: 1px solid #ddd; border-radius: 6px; font-size: 0.9rem; }
+        .line-inputs input:focus { outline: none; border-color: #3498db; }
+        .line-inputs .speaker { width: 120px; }
+        .line-inputs .content { flex: 1; resize: vertical; min-height: 40px; }
+        .line-actions { display: flex; gap: 4px; align-items: center; }
+        .line-btn { padding: 6px 10px; cursor: pointer; font-size: 1.1rem; opacity: 0.5; transition: all 0.2s; background: none; border: none; }
+        .line-btn:hover { opacity: 1; }
+        .line-btn.remove { color: #e74c3c; }
+        .add-line-btn { width: 100%; padding: 14px; border: 2px dashed #ccc; background: none; cursor: pointer; border-radius: 8px; color: #7f8c8d; font-size: 0.9rem; transition: all 0.2s; }
+        .add-line-btn:hover { border-color: #3498db; color: #3498db; background: #f0f8ff; }
+        .scores-section { margin-bottom: 24px; }
+        .scores-section h4 { font-size: 0.95rem; color: #2c3e50; margin-bottom: 16px; }
+        .scores-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+        .score-card { background: #f8f9fa; padding: 16px; border-radius: 8px; }
+        .score-card label { display: block; margin-bottom: 10px; font-size: 0.85rem; color: #555; font-weight: 500; }
+        .score-buttons { display: flex; gap: 6px; }
+        .score-buttons button { width: 32px; height: 32px; border: 1px solid #ddd; background: white; cursor: pointer; border-radius: 6px; font-size: 0.85rem; transition: all 0.2s; }
+        .score-buttons button:hover { border-color: #3498db; }
+        .score-buttons button.active { background: #3498db; color: white; border-color: #3498db; }
+        .tags-section { margin-bottom: 24px; }
+        .tags-section h4 { font-size: 0.95rem; color: #2c3e50; margin-bottom: 12px; }
+        .preset-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+        .preset-tag { padding: 4px 8px; border: 1px solid #e0e0e0; border-radius: 16px; background: white; cursor: pointer; font-size: 0.8rem; transition: all 0.2s; color: #555; position: relative; display: inline-flex; align-items: center; gap: 3px; }
+        .preset-tag:hover { border-color: #3498db; color: #3498db; }
+        .preset-tag.active { background: #3498db; color: white; border-color: #3498db; }
+        .tag-close { display: none; width: 14px; height: 14px; border-radius: 50%; background: rgba(0,0,0,0.2); color: inherit; font-size: 12px; line-height: 13px; text-align: center; cursor: pointer; margin-left: 2px; }
+        .preset-tag.active .tag-close { background: rgba(255,255,255,0.3); }
+        .tag-close:hover { background: rgba(0,0,0,0.4) !important; }
+        .preset-tag[data-custom="true"]:hover .tag-close, .preset-tag[data-custom="true"].active:hover .tag-close { display: flex; align-items: center; justify-content: center; }
+        .custom-tag-input { padding: 6px 10px; border: 1px solid #e0e0e0; border-radius: 4px; flex: 1; font-size: 0.85rem; }
+        .custom-tag-input:focus { outline: none; border-color: #3498db; box-shadow: 0 0 0 2px rgba(52,152,219,0.1); }
+        .suggestion-section { margin-bottom: 20px; }
+        .suggestion-section h4 { font-size: 0.9rem; color: #2c3e50; margin-bottom: 10px; font-weight: 500; }
+        .suggestion-section textarea { width: 100%; padding: 12px; border: 1px solid #e0e0e0; border-radius: 8px; min-height: 90px; resize: vertical; font-family: inherit; font-size: 0.9rem; background: #fafafa; }
+        .suggestion-section textarea:focus { outline: none; border-color: #3498db; background: white; }
+        .complete-panel { background: linear-gradient(135deg, #f8f9fa 0%, #f0f2f5 100%); padding: 18px; border-radius: 10px; margin-bottom: 20px; border: 1px solid #e8e8e8; }
+        .complete-panel h4 { font-size: 0.95rem; color: #2c3e50; margin-bottom: 10px; font-weight: 500; }
+        .complete-info { background: #fff9e6; padding: 10px 14px; border-radius: 6px; margin-bottom: 14px; font-size: 0.85rem; border-left: 3px solid #f39c12; }
+        .complete-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+        .complete-row input[type="number"] { width: 60px; padding: 6px 10px; border: 1px solid #ddd; border-radius: 4px; text-align: center; }
+        .status-panel { width: 260px; background: white; border-left: 1px solid #e8e8e8; padding: 20px; }
+        .status-section { margin-bottom: 24px; }
+        .status-section h4 { font-size: 0.75rem; color: #999; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 10px; font-weight: 600; }
+        .stat-item { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #f5f5f5; font-size: 0.85rem; color: #555; }
+        .stat-item .value { font-weight: 600; color: #2c3e50; }
+        .progress-bar { height: 5px; background: #f0f0f0; border-radius: 3px; margin-top: 10px; overflow: hidden; }
+        .progress-bar .fill { height: 100%; background: linear-gradient(90deg, #27ae60, #2ecc71); border-radius: 3px; transition: width 0.3s ease; }
+        .modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.35); display: none; justify-content: center; align-items: center; z-index: 1000; }
+        .modal.show { display: flex; }
+        .modal-content { background: white; border-radius: 12px; width: 90%; max-width: 520px; max-height: 85vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.2); }
+        .modal-header { padding: 16px 20px; border-bottom: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; cursor: move; background: #fafafa; border-radius: 12px 12px 0 0; }
+        .modal-header h4 { font-size: 0.95rem; color: #2c3e50; font-weight: 500; }
+        .modal-close { font-size: 1.4rem; cursor: pointer; color: #999; line-height: 1; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 4px; transition: all 0.2s; }
+        .modal-close:hover { color: #333; background: #f0f0f0; }
+        .modal-body { padding: 20px; }
+        .modal-line-preview { background: #f8f9fa; padding: 14px 18px; border-radius: 8px; margin-bottom: 20px; font-size: 0.95rem; border-left: 4px solid #3498db; }
+        .modal-actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 24px; padding-top: 16px; border-top: 1px solid #eee; }
+        .hidden { display: none !important; }
+        .loading-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: none; justify-content: center; align-items: center; z-index: 2000; }
+        .loading-overlay.show { display: flex; }
+        .loading-box { background: white; padding: 30px 40px; border-radius: 10px; text-align: center; }
+        .spinner { width: 40px; height: 40px; border: 3px solid #f3f3f3; border-top: 3px solid #3498db; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 12px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        /* Stats Report */
+        .stats-report { margin-top: 20px; padding-top: 16px; border-top: 1px solid #eee; }
+        .stats-report h4 { font-size: 0.85rem; color: #7f8c8d; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; }
+        .avg-scores { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px; }
+        .avg-score-item { display: flex; justify-content: space-between; font-size: 0.8rem; padding: 6px 0; border-bottom: 1px solid #f0f0f0; }
+        .avg-score-item .label { color: #666; }
+        .avg-score-item .value { font-weight: 600; color: #2c3e50; }
+        .avg-score-item .value.high { color: #27ae60; }
+        .avg-score-item .value.medium { color: #f39c12; }
+        .avg-score-item .value.low { color: #e74c3c; }
+        .tag-stats { margin-top: 12px; }
+        .tag-stat-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; font-size: 0.8rem; }
+        .tag-stat-item .tag-name { color: #3498db; background: #e8f4fc; padding: 3px 8px; border-radius: 12px; }
+        .tag-stat-item .tag-count { font-weight: 600; color: #2c3e50; }
+        .no-stats { font-size: 0.85rem; color: #95a5a6; text-align: center; padding: 20px 0; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📝 剧本台词标注工具</h1>
+        <div class="header-actions">
+            <button class="btn btn-secondary" onclick="togglePanel()">Ollama设置</button>
+            <button class="btn btn-secondary" onclick="saveToFile()">💾 另存到桌面</button>
+            <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">📂 导入JSON</button>
+            <button class="btn btn-warning" onclick="document.getElementById('mergeInput').click()">🔀 合并JSON</button>
+            <button class="btn btn-success" onclick="exportData()">导出JSON</button>
+        </div>
+    </div>
+    
+    <input type="file" id="fileInput" accept=".json" style="display:none" onchange="loadFromFile(event)" title="选择JSON文件导入数据">
+    <input type="file" id="mergeInput" accept=".json" style="display:none" onchange="loadFromFile(event, true)" title="合并到现有数据">
+    
+    <div class="ollama-panel" id="ollamaPanel">
+        <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
+            <div>
+                <label title="选择API类型" style="font-size:0.85rem;display:block;margin-bottom:4px;">API类型</label>
+                <select id="apiType" title="选择API类型" onchange="onApiTypeChange()" style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;">
+                    <option value="ollama">Ollama (本地)</option>
+                    <option value="openai">OpenAI</option>
+                    <option value="claude">Claude</option>
+                    <option value="deepseek">DeepSeek</option>
+                    <option value="qwen">通义千问</option>
+                    <option value="zhipu">智谱AI</option>
+                    <option value="minimax">MiniMax</option>
+                </select>
+            </div>
+            <div id="apiKeyContainer" style="flex:1;min-width:200px;display:none;">
+                <label title="API Key" style="font-size:0.85rem;display:block;margin-bottom:4px;">API Key</label>
+                <input type="password" id="apiKey" placeholder="输入API Key" onchange="saveApiKey()" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:4px;">
+            </div>
+            <div id="apiUrlContainer" style="display:none;flex:1;min-width:200px;">
+                <label title="API地址" style="font-size:0.85rem;display:block;margin-bottom:4px;">API地址</label>
+                <input type="text" id="apiUrl" placeholder="https://api..." style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:4px;">
+            </div>
+        </div>
+        
+        <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
+            <div id="modelSelectContainer" style="flex:1;min-width:150px;">
+                <label title="选择模型" style="font-size:0.85rem;display:block;margin-bottom:4px;">模型</label>
+                <select id="ollamaModel" title="选择AI模型" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:4px;">
+                    <option value="">加载中...</option>
+                </select>
+            </div>
+            <div id="ollamaUrlContainer" style="flex:1;min-width:200px;">
+                <label title="Ollama地址" style="font-size:0.85rem;display:block;margin-bottom:4px;">Ollama地址</label>
+                <input type="text" id="ollamaUrl" value="http://localhost:11434" placeholder="http://localhost:11434" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:4px;">
+            </div>
+            <button class="btn btn-secondary" onclick="testApi()" id="testApiBtn">测试连接</button>
+            <button class="btn btn-secondary" onclick="refreshModels()" id="refreshOllamaBtn">刷新模型</button>
+        </div>
+        
+        <div id="apiTip" style="margin-top:10px;font-size:0.8rem;color:#666;">
+            💡 使用Ollama无需API Key，需本地安装Ollama
+        </div>
+    </div>
+    
+    <div class="main-container">
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <span>对话列表</span>
+                <button class="btn btn-primary" onclick="addDialogue()">+ 新增</button>
+            </div>
+            <div class="sidebar-list" id="dialogueList"></div>
+        </div>
+        
+        <div class="editor" id="editor">
+            <div class="empty-state" id="emptyState">
+                <h3>选择或创建对话</h3>
+                <p>点击左侧对话开始标注</p>
+            </div>
+            
+            <div class="card hidden" id="editCard">
+                <div class="mode-tabs">
+                    <button class="mode-tab active" id="tabAnno" onclick="switchMode('anno')">📝 标注模式</button>
+                    <button class="mode-tab" id="tabComplete" onclick="switchMode('complete')">✨ AI补全</button>
+                </div>
+                
+                <div class="card-header">
+                    <h3>对话 #<span id="dialogueIndex">1</span></h3>
+                    <div>
+                        <button class="btn btn-danger" onclick="deleteDialogue()">删除</button>
+                        <button class="btn btn-primary" id="saveBtn" onclick="saveDialogue()">保存</button>
+                    </div>
+                </div>
+                
+                <div id="annoMode">
+                    <div class="lines-section" id="linesContainer"></div>
+                    <button class="add-line-btn" onclick="addLine()">+ 添加台词</button>
+                    
+                    <div class="scores-section">
+                        <h4>评分 (0-5)</h4>
+                        <div class="scores-grid">
+                            <div class="score-card"><label>剧情连贯性</label><div class="score-buttons" id="sb1"></div></div>
+                            <div class="score-card"><label>角色一致性</label><div class="score-buttons" id="sb2"></div></div>
+                            <div class="score-card"><label>台词自然度</label><div class="score-buttons" id="sb3"></div></div>
+                            <div class="score-card"><label>情感表达</label><div class="score-buttons" id="sb4"></div></div>
+                            <div class="score-card"><label>游戏相关度</label><div class="score-buttons" id="sb5"></div></div>
+                            <div class="score-card"><label>长度合适度</label><div class="score-buttons" id="sb6"></div></div>
+                        </div>
+                    </div>
+                    
+                    <div class="tags-section">
+                        <h4>标签</h4>
+                        <div class="preset-tags" id="presetTags">
+                            <button class="preset-tag" data-t="情感冲突" onclick="toggleTag(this)">情感冲突</button>
+                            <button class="preset-tag" data-t="角色成长" onclick="toggleTag(this)">角色成长</button>
+                            <button class="preset-tag" data-t="伏笔铺垫" onclick="toggleTag(this)">伏笔铺垫</button>
+                            <button class="preset-tag" data-t="幽默" onclick="toggleTag(this)">幽默</button>
+                            <button class="preset-tag" data-t="紧张" onclick="toggleTag(this)">紧张</button>
+                            <button class="preset-tag" data-t="反转" onclick="toggleTag(this)">反转</button>
+                        </div>
+                        <div style="display:flex;gap:8px;margin-top:8px;">
+                            <input type="text" id="customTagInput" class="custom-tag-input" placeholder="添加自定义标签，按Enter确认">
+                            <button class="btn btn-secondary" onclick="addCustomTag()" style="padding:6px 12px;">+</button>
+                        </div>
+                    </div>
+                    
+                    <div class="suggestion-section">
+                        <h4>修改建议或示例</h4>
+                        <textarea id="suggestionText" placeholder="输入修改建议或参考示例"></textarea>
+                    </div>
+                    
+                    <button class="btn btn-primary" onclick="aiSuggest()" style="margin-top:10px">🤖 AI生成建议</button>
+                </div>
+                
+                <div id="completeMode" class="hidden">
+                    <div class="complete-panel">
+                        <h4>💡 AI补全对话</h4>
+                        <div class="complete-info">
+                            <strong>选中行：</strong><span id="selectedInfo">无（将在末尾续写）</span>
+                        </div>
+                        <div class="complete-row">
+                            <label>插入行数：<input type="number" id="insertCount" value="1" min="1" max="10"></label>
+                            <button class="btn btn-warning" onclick="aiComplete()">🚀 AI补全并插入</button>
+                            <button class="btn btn-secondary" onclick="clearAiLines()" style="margin-left:8px">🗑️ 清除AI台词</button>
+                        </div>
+                    </div>
+                    <div id="completeResult"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="status-panel">
+            <div class="status-section">
+                <h4>统计</h4>
+                <div class="stat-item"><span>总对话数</span><span class="value" id="totalCount">0</span></div>
+                <div class="stat-item"><span>已标注</span><span class="value" id="doneCount">0</span></div>
+                <div class="progress-bar"><div class="fill" id="progressFill" style="width:0%"></div></div>
+            </div>
+            
+            <!-- 统计报表 -->
+            <div class="stats-report" id="statsReport">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                    <h4>📊 数据分析</h4>
+                    <button onclick="updateStats()" style="padding:4px 8px;border:1px solid #ddd;background:white;border-radius:4px;cursor:pointer;" title="刷新统计">🔄</button>
+                </div>
+                <div id="statsContent">
+                    <div class="no-stats">暂无标注数据</div>
+                </div>
+            </div>
+            
+            <div class="status-section" style="margin-top:auto">
+                <button class="btn btn-secondary" style="width:100%;margin-bottom:8px" onclick="copyDialogue()">复制当前对话</button>
+                <button class="btn btn-secondary" style="width:100%" onclick="clearAllData()">清空所有数据</button>
+            </div>
+        </div>
+    </div>
+    
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-box">
+            <div class="spinner"></div>
+            <p id="loadingText">处理中...</p>
+        </div>
+    </div>
+    
+    <div class="modal" id="lineModal">
+        <div class="modal-content" id="modalContent">
+            <div class="modal-header" id="modalHeader">
+                <h4>📝 单句标注 - 第 <span id="modalLineNum">1</span> 句</h4>
+                <span class="modal-close" onclick="closeLineModal()">×</span>
+            </div>
+            <div class="modal-body">
+                <div class="modal-line-preview" id="modalLinePreview">角色: 台词内容...</div>
+                
+                <div class="scores-section">
+                    <h4>评分 (0-5)</h4>
+                    <div class="scores-grid">
+                        <div class="score-card"><label>剧情连贯性</label><div class="score-buttons" id="lsb1"></div></div>
+                        <div class="score-card"><label>角色一致性</label><div class="score-buttons" id="lsb2"></div></div>
+                        <div class="score-card"><label>台词自然度</label><div class="score-buttons" id="lsb3"></div></div>
+                        <div class="score-card"><label>情感表达</label><div class="score-buttons" id="lsb4"></div></div>
+                        <div class="score-card"><label>游戏相关度</label><div class="score-buttons" id="lsb5"></div></div>
+                        <div class="score-card"><label>长度合适度</label><div class="score-buttons" id="lsb6"></div></div>
+                    </div>
+                </div>
+                
+                <div class="tags-section">
+                    <h4>标签</h4>
+                    <div class="preset-tags" id="modalPresetTags">
+                        <button class="preset-tag" data-t="情感冲突" onclick="toggleTag(this)">情感冲突</button>
+                        <button class="preset-tag" data-t="角色成长" onclick="toggleTag(this)">角色成长</button>
+                        <button class="preset-tag" data-t="伏笔铺垫" onclick="toggleTag(this)">伏笔铺垫</button>
+                        <button class="preset-tag" data-t="幽默" onclick="toggleTag(this)">幽默</button>
+                        <button class="preset-tag" data-t="紧张" onclick="toggleTag(this)">紧张</button>
+                        <button class="preset-tag" data-t="反转" onclick="toggleTag(this)">反转</button>
+                    </div>
+                    <div style="display:flex;gap:8px;margin-top:8px;">
+                        <input type="text" id="modalCustomTagInput" class="custom-tag-input" placeholder="添加自定义标签，按Enter确认">
+                        <button class="btn btn-secondary" onclick="addModalCustomTag()" style="padding:6px 12px;">+</button>
+                    </div>
+                </div>
+                
+                <div class="suggestion-section">
+                    <h4>修改建议或示例</h4>
+                    <textarea id="lineSuggestion" placeholder="输入修改建议或参考示例"></textarea>
+                </div>
+                
+                <div class="modal-actions">
+                    <button class="btn btn-secondary" onclick="closeLineModal()">取消</button>
+                    <button class="btn btn-primary" onclick="saveLineAnnotation()">保存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        var dialogues = [];
+        var curIdx = -1;
+        var curMode = 'anno';
+        var selectedLine = -1;
+        var currentLineAnno = null;
+        var aiSuggestion = '';
+        
+        function load() {
+            var d = localStorage.getItem('d_data');
+            if (d) {
+                try {
+                    dialogues = JSON.parse(d);
+                } catch(e) {
+                    console.log('解析localStorage数据失败:', e.message);
+                }
+            }
+            var s = localStorage.getItem('d_ollama');
+            if (s) {
+                try {
+                    var o = JSON.parse(s);
+                    document.getElementById('ollamaUrl').value = o.url || 'http://localhost:11434';
+                    document.getElementById('ollamaModel').value = o.model || 'mistral:7b';
+                    document.getElementById('apiType').value = o.apiType || 'ollama';
+                    document.getElementById('apiKey').value = o.apiKey || '';
+                    document.getElementById('apiUrl').value = o.apiUrl || '';
+                } catch(e) {}
+            }
+            renderDialogueList();
+            updateStats();
+            setupScoreButtons();
+            setupPresetTags();
+            setupModalDrag();
+            setupDragDropImport();
+            setupLineClick(); // 台词行点击事件
+            setTimeout(onApiTypeChange, 100); // 延迟初始化API面板，确保DOM已就绪
+        }
+        
+        // 台词行点击事件（事件委托）
+        function setupLineClick() {
+            var container = document.getElementById('linesContainer');
+            container.onclick = function(e) {
+                var row = e.target.closest('.line-row');
+                if (!row) return;
+                // 排除按钮和输入框的点击
+                if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT') return;
+                var idx = parseInt(row.getAttribute('data-idx'));
+                if (!isNaN(idx)) {
+                    selectLine(idx);
+                }
+            };
+        }
+        
+        // API类型切换
+        function onApiTypeChange() {
+            var apiType = document.getElementById('apiType').value;
+            var keyContainer = document.getElementById('apiKeyContainer');
+            var urlContainer = document.getElementById('apiUrlContainer');
+            var ollamaUrlContainer = document.getElementById('ollamaUrlContainer');
+            var modelSelectContainer = document.getElementById('modelSelectContainer');
+            var tip = document.getElementById('apiTip');
+            var testBtn = document.getElementById('testApiBtn');
+            var refreshBtn = document.getElementById('refreshOllamaBtn');
+            var select = document.getElementById('ollamaModel');
+            var ollamaUrl = document.getElementById('ollamaUrl');
+            
+            // 保存当前设置
+            try {
+                var s = localStorage.getItem('d_ollama');
+                var o = s ? JSON.parse(s) : {};
+                o.apiType = apiType;
+                o.apiUrl = document.getElementById('apiUrl').value;
+                localStorage.setItem('d_ollama', JSON.stringify(o));
+            } catch(e) {}
+            
+            // 隐藏所有额外输入框
+            keyContainer.style.display = 'none';
+            urlContainer.style.display = 'none';
+            ollamaUrlContainer.style.display = 'none';
+            
+            switch(apiType) {
+                case 'ollama':
+                    ollamaUrlContainer.style.display = 'block';
+                    refreshBtn.style.display = 'inline-block';
+                    testBtn.textContent = '测试连接';
+                    tip.innerHTML = '💡 使用Ollama无需API Key，需本地安装Ollama';
+                    refreshModels();
+                    break;
+                case 'openai':
+                    keyContainer.style.display = 'block';
+                    urlContainer.style.display = 'block';
+                    document.getElementById('apiUrl').placeholder = 'https://api.openai.com/v1';
+                    urlContainer.querySelector('label').textContent = 'API地址';
+                    refreshBtn.style.display = 'none';
+                    testBtn.textContent = '测试连接';
+                    tip.innerHTML = '💡 OpenAI API Key格式: sk-...<br>模型: gpt-4o, gpt-4-turbo, gpt-3.5-turbo';
+                    loadOpenAIModels();
+                    break;
+                case 'claude':
+                    keyContainer.style.display = 'block';
+                    urlContainer.style.display = 'block';
+                    document.getElementById('apiUrl').placeholder = 'https://api.anthropic.com/v1';
+                    urlContainer.querySelector('label').textContent = 'API地址';
+                    refreshBtn.style.display = 'none';
+                    testBtn.textContent = '测试连接';
+                    tip.innerHTML = '💡 Claude API Key<br>模型: claude-sonnet-4-20250514, claude-opus-4';
+                    loadClaudeModels();
+                    break;
+                case 'deepseek':
+                    keyContainer.style.display = 'block';
+                    urlContainer.style.display = 'block';
+                    document.getElementById('apiUrl').placeholder = 'https://api.deepseek.com/chat/completions';
+                    urlContainer.querySelector('label').textContent = 'API地址';
+                    refreshBtn.style.display = 'none';
+                    testBtn.textContent = '测试连接';
+                    tip.innerHTML = '💡 DeepSeek API Key<br>模型: deepseek-chat';
+                    loadDeepSeekModels();
+                    break;
+                case 'qwen':
+                    keyContainer.style.display = 'block';
+                    urlContainer.style.display = 'block';
+                    document.getElementById('apiUrl').placeholder = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation';
+                    urlContainer.querySelector('label').textContent = 'API地址';
+                    refreshBtn.style.display = 'none';
+                    testBtn.textContent = '测试连接';
+                    tip.innerHTML = '💡 阿里通义千问API DashScope Key<br>模型: qwen-plus, qwen-turbo, qwen-max';
+                    loadQwenModels();
+                    break;
+                case 'zhipu':
+                    keyContainer.style.display = 'block';
+                    urlContainer.style.display = 'block';
+                    document.getElementById('apiUrl').placeholder = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
+                    urlContainer.querySelector('label').textContent = 'API地址';
+                    refreshBtn.style.display = 'none';
+                    testBtn.textContent = '测试连接';
+                    tip.innerHTML = '💡 智谱AI API Key<br>模型: glm-4, glm-4-plus, glm-3-turbo';
+                    loadZhipuModels();
+                    break;
+                case 'minimax':
+                    keyContainer.style.display = 'block';
+                    urlContainer.style.display = 'block';
+                    document.getElementById('apiUrl').placeholder = 'https://api.minimax.chat/v1/text/chatcompletion_v2';
+                    urlContainer.querySelector('label').textContent = 'API地址';
+                    refreshBtn.style.display = 'none';
+                    testBtn.textContent = '测试连接';
+                    tip.innerHTML = '💡 MiniMax API Key（格式: Bearer xxxx）<br>模型: abab6.5s-chat, abab6.5-chat, abab5.5s-chat';
+                    loadMiniMaxModels();
+                    break;
+            }
+        }
+        
+        // 加载各API的模型列表
+        function loadOpenAIModels() {
+            var select = document.getElementById('ollamaModel');
+            var models = ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo'];
+            select.innerHTML = models.map(function(m) { return '<option value="' + m + '">' + m + '</option>'; }).join('');
+        }
+        
+        function loadClaudeModels() {
+            var select = document.getElementById('ollamaModel');
+            var models = ['claude-sonnet-4-20250514', 'claude-opus-4', 'claude-sonnet-3-20250514', 'claude-haiku-3-20250514'];
+            select.innerHTML = models.map(function(m) { return '<option value="' + m + '">' + m + '</option>'; }).join('');
+        }
+        
+        function loadDeepSeekModels() {
+            var select = document.getElementById('ollamaModel');
+            var models = ['deepseek-chat', 'deepseek-reasoner'];
+            select.innerHTML = models.map(function(m) { return '<option value="' + m + '">' + m + '</option>'; }).join('');
+        }
+        
+        function loadQwenModels() {
+            var select = document.getElementById('ollamaModel');
+            var models = ['qwen-plus', 'qwen-turbo', 'qwen-max', 'qwen-long'];
+            select.innerHTML = models.map(function(m) { return '<option value="' + m + '">' + m + '</option>'; }).join('');
+        }
+        
+        function loadZhipuModels() {
+            var select = document.getElementById('ollamaModel');
+            var models = ['glm-4', 'glm-4-plus', 'glm-4v', 'glm-3-turbo'];
+            select.innerHTML = models.map(function(m) { return '<option value="' + m + '">' + m + '</option>'; }).join('');
+        }
+        
+        function loadMiniMaxModels() {
+            var select = document.getElementById('ollamaModel');
+            var models = ['abab6.5s-chat', 'abab6.5-chat', 'abab5.5s-chat'];
+            select.innerHTML = models.map(function(m) { return '<option value="' + m + '">' + m + '</option>'; }).join('');
+        }
+        
+        // 测试API连接
+        async function testApi() {
+            var apiType = document.getElementById('apiType').value;
+            var url, apiKey;
+            
+            try {
+                if (apiType === 'ollama') {
+                    url = document.getElementById('ollamaUrl').value;
+                    var r = await fetch(url + '/api/tags');
+                    if (r.ok) { alert('✓ Ollama连接成功'); } else { alert('✗ 连接失败'); }
+                } else {
+                    apiKey = document.getElementById('apiKey').value;
+                    if (!apiKey) { alert('请输入API Key'); return; }
+                    url = document.getElementById('apiUrl').value || getDefaultApiUrl(apiType);
+                    
+                    var body = getApiRequestBody(apiType, 'Hello', 'gpt-3.5-turbo');
+                    var headers = getApiHeaders(apiType, apiKey);
+                    
+                    var r = await fetch(url, { method: 'POST', headers: headers, body: JSON.stringify(body) });
+                    if (r.ok || r.status === 400) { alert('✓ API连接成功'); } else { alert('✗ 连接失败: ' + r.status); }
+                }
+            } catch(e) { alert('连接失败: ' + e.message); }
+        }
+        
+        function getDefaultApiUrl(apiType) {
+            var urls = {
+                'openai': 'https://api.openai.com/v1/chat/completions',
+                'claude': 'https://api.anthropic.com/v1/messages',
+                'deepseek': 'https://api.deepseek.com/chat/completions',
+                'qwen': 'https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation',
+                'zhipu': 'https://open.bigmodel.cn/api/paas/v4/chat/completions',
+                'minimax': 'https://api.minimax.chat/v1/text/chatcompletion_v2'
+            };
+            return urls[apiType] || '';
+        }
+        
+        function getApiHeaders(apiType, apiKey) {
+            var headers = { 'Content-Type': 'application/json' };
+            if (apiType === 'openai' || apiType === 'deepseek' || apiType === 'zhipu') {
+                headers['Authorization'] = 'Bearer ' + apiKey;
+            } else if (apiType === 'claude') {
+                headers['x-api-key'] = apiKey;
+                headers['anthropic-version'] = '2023-06-01';
+            } else if (apiType === 'qwen' || apiType === 'minimax') {
+                headers['Authorization'] = 'Bearer ' + apiKey;
+            }
+            return headers;
+        }
+        
+        function getApiRequestBody(apiType, prompt, model) {
+            if (apiType === 'openai' || apiType === 'deepseek' || apiType === 'zhipu' || apiType === 'minimax') {
+                return { model: model, messages: [{ role: 'user', content: prompt }], max_tokens: 500 };
+            } else if (apiType === 'claude') {
+                return { model: model, messages: [{ role: 'user', content: prompt }], max_tokens: 500 };
+            } else if (apiType === 'qwen') {
+                return { model: model, input: { prompt: prompt }, parameters: { max_tokens: 500 } };
+            }
+            return {};
+        }
+        
+        function getApiResponseText(apiType, data) {
+            if (apiType === 'openai' || apiType === 'deepseek' || apiType === 'zhipu' || apiType === 'minimax') {
+                if (!data.choices || data.choices.length === 0) return '';
+                return data.choices[0].message?.content || '';
+            } else if (apiType === 'claude') {
+                if (!data.content || data.content.length === 0) return '';
+                return data.content[0].text || '';
+            } else if (apiType === 'qwen') {
+                if (!data.output) return '';
+                return data.output.text || '';
+            }
+            return '';
+        }
+        
+        // 统一的AI请求函数
+        async function callAi(prompt) {
+            var apiType = document.getElementById('apiType').value;
+            var model = document.getElementById('ollamaModel').value;
+            var url, headers, body;
+            
+            if (apiType === 'ollama') {
+                url = document.getElementById('ollamaUrl').value + '/api/generate';
+                headers = { 'Content-Type': 'application/json' };
+                body = JSON.stringify({ model: model, prompt: prompt, stream: false });
+            } else {
+                var apiKey = document.getElementById('apiKey').value;
+                url = document.getElementById('apiUrl').value || getDefaultApiUrl(apiType);
+                headers = getApiHeaders(apiType, apiKey);
+                body = JSON.stringify(getApiRequestBody(apiType, prompt, model));
+            }
+            
+            console.log('API请求:', { url: url, apiType: apiType, model: model });
+            
+            var r = await fetch(url, { method: 'POST', headers: headers, body: body });
+            console.log('API响应状态:', r.status, r.statusText);
+            
+            if (!r.ok) {
+                var errText = await r.text();
+                console.error('API错误响应:', errText);
+                throw new Error('API请求失败: ' + r.status + ' ' + r.statusText);
+            }
+            var data = await r.json();
+            console.log('API响应数据:', JSON.stringify(data).substring(0, 500));
+            
+            if (apiType === 'ollama') {
+                return data.response || data.output || '';
+            } else {
+                return getApiResponseText(apiType, data);
+            }
+        }
+        
+        // 刷新Ollama模型列表
+        async function refreshModels() {
+            var url = document.getElementById('ollamaUrl').value;
+            var select = document.getElementById('ollamaModel');
+            var savedModel = select.value;
+            
+            try {
+                var r = await fetch(url + '/api/tags');
+                if (!r.ok) throw new Error('连接失败');
+                var data = await r.json();
+                var models = data.models || [];
+                
+                select.innerHTML = '';
+                if (models.length === 0) {
+                    select.innerHTML = '<option value="">未找到模型</option>';
+                } else {
+                    models.forEach(function(m) {
+                        var opt = document.createElement('option');
+                        opt.value = m.name;
+                        opt.textContent = m.name + ' (' + (m.size ? formatSize(m.size) : '?') + ')';
+                        select.appendChild(opt);
+                    });
+                    // 尝试恢复之前选择的模型
+                    if (savedModel) {
+                        var found = Array.from(select.options).find(function(o) { return o.value === savedModel; });
+                        if (found) found.selected = true;
+                    }
+                    // 如果只有一个模型，自动选中
+                    if (models.length === 1) select.selectedIndex = 0;
+                }
+            } catch(e) {
+                select.innerHTML = '<option value="">无法获取模型列表</option>';
+                console.log('获取模型列表失败:', e.message);
+            }
+        }
+        
+        function formatSize(bytes) {
+            if (!bytes) return '?';
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + ' KB';
+            if (bytes < 1024*1024*1024) return (bytes/(1024*1024)).toFixed(1) + ' MB';
+            return (bytes/(1024*1024*1024)).toFixed(1) + ' GB';
+        }
+        
+        // 添加自定义标签
+        function addCustomTag() {
+            var input = document.getElementById('customTagInput');
+            var tag = input.value.trim();
+            if (!tag) return;
+            
+            // 检查是否已存在
+            var container = document.getElementById('presetTags');
+            var existing = container.querySelector('[data-t="' + tag + '"]');
+            if (existing) {
+                existing.classList.add('active');
+                input.value = '';
+                return;
+            }
+            
+            // 添加新标签（统一结构）
+            var btn = document.createElement('button');
+            btn.className = 'preset-tag active';
+            btn.dataset.t = tag;
+            btn.dataset.custom = 'true';
+            btn.onclick = function() { toggleTag(this); };
+            btn.innerHTML = tag + '<span class="tag-close" onclick="event.stopPropagation();removeCustomTag(this.parentElement)">×</span>';
+            container.appendChild(btn);
+            input.value = '';
+        }
+        
+        // 删除自定义标签
+        function removeCustomTag(el) {
+            var tagName = el.dataset.t;
+            if (confirm('删除标签 "' + tagName + '"？')) {
+                el.remove();
+                updateStats();
+            }
+        }
+        
+        // 添加自定义标签（弹窗用）
+        function addModalCustomTag() {
+            var input = document.getElementById('modalCustomTagInput');
+            var tag = input.value.trim();
+            if (!tag) return;
+            
+            var container = document.getElementById('modalPresetTags');
+            var existing = container.querySelector('[data-t="' + tag + '"]');
+            if (existing) {
+                existing.classList.add('active');
+                input.value = '';
+                return;
+            }
+            
+            var btn = document.createElement('button');
+            btn.className = 'preset-tag active';
+            btn.dataset.t = tag;
+            btn.dataset.custom = 'true';
+            btn.onclick = function() { toggleTag(this); };
+            btn.innerHTML = tag + '<span class="tag-close" onclick="event.stopPropagation();removeModalCustomTag(this.parentElement)">×</span>';
+            container.appendChild(btn);
+            input.value = '';
+        }
+        
+        // 删除弹窗中的自定义标签
+        function removeModalCustomTag(el) {
+            var tagName = el.dataset.t;
+            el.remove();
+        }
+        
+        // 拖拽导入 JSON 文件
+        function setupDragDropImport() {
+            var dropZone = document.body;
+            dropZone.ondragover = function(e) {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'copy';
+            };
+            dropZone.ondrop = function(e) {
+                e.preventDefault();
+                var files = e.dataTransfer.files;
+                if (files.length > 0 && files[0].name.endsWith('.json')) {
+                    var reader = new FileReader();
+                    reader.onload = function(evt) {
+                        try {
+                            var data = JSON.parse(evt.target.result);
+                            if (data.dialogues && confirm('导入 ' + data.dialogues.length + ' 条对话？\n当前数据将被替换。')) {
+                                dialogues = data.dialogues;
+                                curIdx = -1;
+                                renderDialogueList();
+                                renderEditor();
+                                updateStats();
+                                saveToStorage();
+                                alert('✓ 导入成功！');
+                            }
+                        } catch(err) {
+                            alert('解析失败: ' + err.message);
+                        }
+                    };
+                    reader.readAsText(files[0]);
+                } else {
+                    alert('请拖入 JSON 文件');
+                }
+            };
+        }
+        
+        // 保存API Key设置
+        function saveApiKey() {
+            try {
+                var s = localStorage.getItem('d_ollama');
+                var o = s ? JSON.parse(s) : {};
+                o.apiKey = document.getElementById('apiKey').value;
+                localStorage.setItem('d_ollama', JSON.stringify(o));
+                console.log('API Key已保存');
+            } catch(e) {
+                console.error('保存API Key失败:', e);
+            }
+        }
+        
+        function saveToStorage() {
+            try {
+                localStorage.setItem('d_data', JSON.stringify(dialogues));
+                localStorage.setItem('d_ollama', JSON.stringify({ 
+                    url: document.getElementById('ollamaUrl').value, 
+                    model: document.getElementById('ollamaModel').value,
+                    apiType: document.getElementById('apiType').value,
+                    apiKey: document.getElementById('apiKey').value,
+                    apiUrl: document.getElementById('apiUrl').value
+                }));
+                localStorage.removeItem('d_unsaved');
+                console.log('已保存到本地Storage');
+            } catch(e) {
+                console.error('保存失败:', e);
+            }
+        }
+        
+        function renderDialogueList() {
+            var list = document.getElementById('dialogueList');
+            list.innerHTML = '';
+            
+            // 添加拖拽指示器
+            var indicator = document.createElement('div');
+            indicator.className = 'drag-indicator';
+            indicator.id = 'dragIndicator';
+            list.appendChild(indicator);
+            
+            dialogues.forEach(function(d, i) {
+                var item = document.createElement('div');
+                item.className = 'dialogue-item ' + (i === curIdx ? 'active' : '');
+                item.draggable = true;
+                item.dataset.index = i;
+                
+                // 显示更多内容，标题更清晰
+                var preview = d.lines.map(function(l) { 
+                    var speaker = l.speaker || '?';
+                    var content = l.content || '';
+                    return speaker + ': ' + content.substring(0, 20);
+                }).join(' | ');
+                if (preview.length > 50) preview = preview.substring(0, 50) + '...';
+                
+                var annotatedLines = d.lines.filter(function(l) { return l.annotations && (l.annotations.narrative_coherence > 0 || l.annotations.character_consistency > 0); }).length;
+                var hasAnno = d.annotation && d.annotation.narrative_coherence > 0;
+                var meta = d.lines.length + '句';
+                if (annotatedLines > 0) meta += ' • ' + annotatedLines + '/' + d.lines.length + '已标注';
+                if (hasAnno) meta += ' • 已评分';
+                
+                item.innerHTML = '<div class="title">' + (preview || '空对话') + '</div>' +
+                    '<div class="meta"><span>' + meta + '</span>' +
+                    '<button class="delete-btn" onclick="event.stopPropagation();deleteDialogue(' + i + ')" title="删除">🗑️</button></div>';
+                
+                // 点击选择
+                item.onclick = function() { selectDialogue(parseInt(this.dataset.index)); };
+                
+                // 拖拽事件
+                item.ondragstart = function(e) {
+                    this.classList.add('dragging');
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', this.dataset.index);
+                    setTimeout(() => { this.style.opacity = '0.3'; }, 0);
+                };
+                item.ondragend = function(e) {
+                    this.classList.remove('dragging');
+                    this.style.opacity = '';
+                    document.querySelectorAll('.dialogue-item').forEach(function(el) { 
+                        el.classList.remove('drag-over'); 
+                    });
+                    document.getElementById('dragIndicator').classList.remove('visible');
+                };
+                item.ondragover = function(e) {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    
+                    var dragging = document.querySelector('.dialogue-item.dragging');
+                    if (!dragging) return;
+                    
+                    var fromIdx = parseInt(dragging.dataset.index);
+                    var toIdx = parseInt(this.dataset.index);
+                    
+                    if (fromIdx !== toIdx) {
+                        this.classList.add('drag-over');
+                        
+                        // 显示指示器
+                        var indicator = document.getElementById('dragIndicator');
+                        
+                        // 指示器宽度与列表项一致
+                        indicator.style.width = this.offsetWidth + 'px';
+                        indicator.style.left = this.offsetLeft + 'px';
+                        
+                        // 判断鼠标在目标的上半部分还是下半部分
+                        var mouseY = e.clientY;
+                        var midY = this.getBoundingClientRect().top + this.getBoundingClientRect().height / 2;
+                        
+                        if (mouseY < midY) {
+                            // 放在上方
+                            indicator.style.top = (this.offsetTop - 2) + 'px';
+                        } else {
+                            // 放在下方
+                            indicator.style.top = (this.offsetTop + this.offsetHeight) + 'px';
+                        }
+                        
+                        indicator.classList.add('visible');
+                    }
+                };
+                item.ondragleave = function(e) {
+                    this.classList.remove('drag-over');
+                    if (!this.contains(e.relatedTarget)) {
+                        document.getElementById('dragIndicator').classList.remove('visible');
+                    }
+                };
+                item.ondrop = function(e) {
+                    e.preventDefault();
+                    this.classList.remove('drag-over');
+                    document.getElementById('dragIndicator').classList.remove('visible');
+                    
+                    var fromIdx = parseInt(e.dataTransfer.getData('text/plain'));
+                    var toIdx = parseInt(this.dataset.index);
+                    
+                    if (fromIdx !== toIdx) {
+                        var item = dialogues.splice(fromIdx, 1)[0];
+                        dialogues.splice(toIdx, 0, item);
+                        
+                        // 调整 curIdx
+                        if (curIdx === fromIdx) curIdx = toIdx;
+                        else if (fromIdx < curIdx && toIdx >= curIdx) curIdx--;
+                        else if (fromIdx > curIdx && toIdx <= curIdx) curIdx++;
+                        
+                        renderDialogueList();
+                        renderEditor();
+                        saveToStorage();
+                    }
+                };
+                
+                list.appendChild(item);
+            });
+        }
+        
+        function selectDialogue(idx) {
+            if (curIdx >= 0 && curMode === 'anno') saveDialogue();
+            curIdx = idx;
+            selectedLine = -1; // 重置选中行
+            renderDialogueList();
+            renderEditor();
+        }
+        
+        function switchMode(mode) {
+            if (curIdx < 0) { alert('请先选择对话'); return; }
+            if (curMode === 'anno' && mode === 'complete') saveDialogue();
+            curMode = mode;
+            document.getElementById('tabAnno').classList.toggle('active', mode === 'anno');
+            document.getElementById('tabComplete').classList.toggle('active', mode === 'complete');
+            document.getElementById('annoMode').classList.toggle('hidden', mode !== 'anno');
+            document.getElementById('completeMode').classList.toggle('hidden', mode !== 'complete');
+            renderEditor(); // 重新渲染以更新选中信息
+        }
+        
+        function renderEditor() {
+            var empty = document.getElementById('emptyState');
+            var card = document.getElementById('editCard');
+            if (curIdx < 0) { empty.classList.remove('hidden'); card.classList.add('hidden'); return; }
+            empty.classList.add('hidden'); card.classList.remove('hidden');
+            
+            var d = dialogues[curIdx];
+            document.getElementById('dialogueIndex').textContent = curIdx + 1;
+            
+            var lc = document.getElementById('linesContainer');
+            lc.innerHTML = '';
+            d.lines.forEach(function(l, lineIdx) {
+                var hasAnno = l.annotations && (l.annotations.narrative_coherence > 0 || l.annotations.character_consistency > 0);
+                var isSelected = selectedLine === lineIdx;
+                var isAi = l.isAiGenerated === true;
+                var rowClass = 'line-row';
+                if (isSelected) rowClass += ' active';
+                if (isAi) rowClass += ' ai-generated';
+                
+                var row = document.createElement('div');
+                row.className = rowClass;
+                row.setAttribute('data-idx', lineIdx);
+                
+                // 行号样式（AI标记用小圆点）
+                var lineNumClass = 'line-num ' + (hasAnno ? 'annotated' : '') + (isSelected ? ' selected' : '') + (isAi ? ' ai-mark' : '');
+                var lineNumTitle = isAi ? 'AI生成 - ' + (l.aiModel || '未知') : '';
+                var lineNumContent = '<span class="ai-tooltip" data-ai-model="' + (l.aiModel || '') + '">' + (lineIdx+1) + '</span>';
+                
+                row.innerHTML = '<span class="' + lineNumClass + '"' + (lineNumTitle ? ' title="' + lineNumTitle + '"' : '') + '>' + lineNumContent + '</span>' +
+                    '<div class="line-inputs">' +
+                    '<input class="speaker" value="' + esc(l.speaker) + '" placeholder="角色" onchange="updateLine(' + lineIdx + ',0,this.value)">' +
+                    '<input class="content" value="' + esc(l.content) + '" placeholder="台词" onchange="updateLine(' + lineIdx + ',1,this.value)">' +
+                    '</div>' +
+                    '<div class="line-actions">' +
+                    '<button class="line-btn" onclick="openLineAnnotation(' + lineIdx + ')" title="标注此句">📝</button>' +
+                    (isAi ? '<button class="line-btn" onclick="removeAiLine(' + lineIdx + ')" title="删除AI台词" style="color:#9b59b6">✕</button>' : '') +
+                    '<button class="line-btn remove" onclick="removeLine(' + lineIdx + ')" title="删除">×</button>' +
+                    '</div>';
+                lc.appendChild(row);
+            });
+            
+            var a = d.annotation || {};
+            for (var i = 1; i <= 6; i++) {
+                var map = {1:'narrative_coherence',2:'character_consistency',3:'dialogue_naturalness',4:'emotional_expression',5:'game_relevance',6:'length_appropriateness'};
+                var sc = a[map[i]] || 0;
+                document.querySelectorAll('#sb' + i + ' button').forEach(function(b) { b.classList.toggle('active', parseInt(b.dataset.s) === sc); });
+            }
+            
+            var tags = a.tags || [];
+            document.querySelectorAll('#presetTags .preset-tag').forEach(function(t) { t.classList.toggle('active', tags.includes(t.dataset.t)); });
+            document.getElementById('suggestionText').value = a.suggestion || '';
+            
+            if (selectedLine >= 0 && selectedLine < d.lines.length) {
+                var l = d.lines[selectedLine];
+                document.getElementById('selectedInfo').textContent = '#' + (selectedLine+1) + ' ' + l.speaker + ': ' + l.content.substring(0, 20) + '...';
+            } else {
+                document.getElementById('selectedInfo').textContent = '无（将在末尾续写）';
+            }
+        }
+        
+        function updateLine(idx, field, value) {
+            if (curIdx >= 0) {
+                dialogues[curIdx].lines[idx][field === 0 ? 'speaker' : 'content'] = value;
+                markAsChanged();
+            }
+        }
+        
+        function selectLine(idx) {
+            selectedLine = idx;
+            renderEditor();
+        }
+        
+        function addLine() {
+            if (curIdx >= 0) { dialogues[curIdx].lines.push({speaker:'',content:''}); renderEditor(); markAsChanged(); }
+        }
+        
+        function removeLine(idx) {
+            if (curIdx >= 0 && dialogues[curIdx].lines.length > 1) { dialogues[curIdx].lines.splice(idx,1); renderEditor(); saveToStorage(); markAsChanged(); }
+        }
+        
+        // 删除AI生成的台词（同时清除AI标记）
+        function removeAiLine(idx) {
+            if (curIdx < 0) return;
+            var line = dialogues[curIdx].lines[idx];
+            if (line.isAiGenerated) {
+                if (confirm('删除这句AI生成的台词？')) {
+                    dialogues[curIdx].lines.splice(idx,1);
+                    if (selectedLine >= idx) selectedLine--;
+                    renderEditor();
+                    saveToStorage();
+                    markAsChanged();
+                }
+            }
+        }
+        
+        // 清除对话中所有AI生成的台词
+        function clearAiLines() {
+            if (curIdx < 0) return;
+            var d = dialogues[curIdx];
+            var aiCount = d.lines.filter(function(l) { return l.isAiGenerated; }).length;
+            if (aiCount === 0) { alert('当前对话没有AI生成的台词'); return; }
+            if (confirm('删除对话中所有 ' + aiCount + ' 句AI台词？')) {
+                d.lines = d.lines.filter(function(l) { return !l.isAiGenerated; });
+                selectedLine = -1;
+                renderEditor();
+                saveToStorage();
+                markAsChanged();
+                alert('已删除 ' + aiCount + ' 句AI台词');
+            }
+        }
+        
+        function addDialogue() {
+            dialogues.push({ id:'c'+Date.now(), lines:[{speaker:'',content:''},{speaker:'',content:''}], annotation:{narrative_coherence:0,character_consistency:0,dialogue_naturalness:0,emotional_expression:0,game_relevance:0,length_appropriateness:0,tags:[],suggestion:'',created:new Date().toISOString()} });
+            selectDialogue(dialogues.length - 1);
+            saveToStorage();
+            updateStats();
+            markAsChanged();
+        }
+        
+        function deleteDialogue(idx) {
+            var targetIdx = idx !== undefined ? idx : curIdx;
+            if (targetIdx >= 0 && confirm('删除对话 #' + (targetIdx+1) + '？')) {
+                dialogues.splice(targetIdx, 1);
+                // 选择相邻的对话
+                if (dialogues.length > 0) {
+                    curIdx = targetIdx >= dialogues.length ? dialogues.length - 1 : targetIdx;
+                } else {
+                    curIdx = -1;
+                }
+                renderDialogueList(); renderEditor(); saveToStorage(); updateStats();
+                clearUnsavedFlag();
+            }
+        }
+        
+        function copyDialogue() {
+            if (curIdx >= 0) {
+                var copy = JSON.parse(JSON.stringify(dialogues[curIdx]));
+                copy.id = 'c' + Date.now();
+                dialogues.splice(curIdx + 1, 0, copy);
+                renderDialogueList(); saveToStorage(); markAsChanged();
+            }
+        }
+        
+        function saveDialogue() {
+            if (curIdx < 0) return;
+            var d = dialogues[curIdx];
+            for (var i = 1; i <= 6; i++) {
+                var map = {1:'narrative_coherence',2:'character_consistency',3:'dialogue_naturalness',4:'emotional_expression',5:'game_relevance',6:'length_appropriateness'};
+                var btn = document.querySelector('#sb' + i + ' button.active');
+                d.annotation[map[i]] = btn ? parseInt(btn.dataset.s) : 0;
+            }
+            var tags = [];
+            document.querySelectorAll('#presetTags .preset-tag.active').forEach(function(t) { tags.push(t.dataset.t); });
+            d.annotation.tags = tags;
+            d.annotation.suggestion = document.getElementById('suggestionText').value;
+            d.annotation.updated = new Date().toISOString();
+            saveToStorage();
+            renderDialogueList();
+            updateStats();
+            clearUnsavedFlag();
+            
+            // 保存成功反馈
+            var saveBtn = document.getElementById('saveBtn');
+            var originalText = saveBtn.textContent;
+            saveBtn.textContent = '✓ 已保存';
+            saveBtn.style.background = '#27ae60';
+            setTimeout(function() {
+                saveBtn.textContent = originalText;
+                saveBtn.style.background = '';
+            }, 1500);
+        }
+        
+        function setupScoreButtons() {
+            console.log('setupScoreButtons called');
+            for (var i = 1; i <= 6; i++) {
+                var container = document.getElementById('sb' + i);
+                if (!container) { console.log('Container sb' + i + ' not found'); continue; }
+                container.innerHTML = '';
+                for (var s = 0; s <= 5; s++) {
+                    var btn = document.createElement('button');
+                    btn.dataset.s = s;
+                    btn.textContent = s;
+                    btn.onclick = function() {
+                        this.parentElement.querySelectorAll('button').forEach(function(b) { b.classList.remove('active'); });
+                        this.classList.add('active');
+                        updateStats(); // 实时更新统计
+                    };
+                    container.appendChild(btn);
+                }
+            }
+            console.log('Score buttons setup complete');
+        }
+        
+        function setupPresetTags() {
+            console.log('setupPresetTags called');
+            document.querySelectorAll('#presetTags .preset-tag').forEach(function(tag) {
+                console.log('Attached handler to tag:', tag.dataset.t);
+            });
+            document.querySelectorAll('#modalPresetTags .preset-tag').forEach(function(tag) {
+                console.log('Attached modal handler to tag:', tag.dataset.t);
+            });
+        }
+        
+        // 切换标签的选中状态（点击标签本身）
+        function toggleTag(el) {
+            el.classList.toggle('active');
+            updateStats();
+        }
+        
+        function updateStats() {
+            console.log('updateStats called, dialogues:', dialogues.length);
+            var total = dialogues.length;
+            var done = dialogues.filter(function(d) { return d.annotation && d.annotation.narrative_coherence > 0; }).length;
+            document.getElementById('totalCount').textContent = total;
+            document.getElementById('doneCount').textContent = done;
+            document.getElementById('progressFill').style.width = total > 0 ? (done/total*100) + '%' : '0%';
+            
+            // 统计AI台词
+            var aiLineCount = 0;
+            dialogues.forEach(function(d) {
+                d.lines.forEach(function(l) {
+                    if (l.isAiGenerated) aiLineCount++;
+                });
+            });
+            // 更新或添加AI台词统计
+            var aiStatItem = document.getElementById('aiLineStat');
+            if (aiStatItem) {
+                aiStatItem.querySelector('.value').textContent = aiLineCount;
+            } else {
+                // 添加到统计面板
+                var statusPanel = document.querySelector('.status-panel');
+                var aiSection = document.createElement('div');
+                aiSection.className = 'status-section';
+                aiSection.id = 'aiLineStat';
+                aiSection.innerHTML = '<h4>🤖 AI台词</h4><div class="stat-item"><span>AI生成台词</span><span class="value">' + aiLineCount + '</span></div><button class="btn btn-secondary" style="width:100%;margin-top:8px;font-size:0.8rem" onclick="clearAiLines()">清除所有AI台词</button>';
+                statusPanel.insertBefore(aiSection, statusPanel.lastElementChild);
+            }
+            
+            renderStatsReport();
+        }
+        
+        function renderStatsReport() {
+            var container = document.getElementById('statsContent');
+            var scoreNames = {narrative_coherence:'剧情连贯', character_consistency:'角色一致', dialogue_naturalness:'台词自然', emotional_expression:'情感表达', game_relevance:'游戏相关', length_appropriateness:'长度合适'};
+            
+            // 收集所有标注数据（包含评分为0的情况）
+            var allScores = {narrative_coherence:[], character_consistency:[], dialogue_naturalness:[], emotional_expression:[], game_relevance:[], length_appropriateness:[]};
+            var allTags = {};
+            var annotatedCount = 0;
+            
+            dialogues.forEach(function(d) {
+                var hasAnno = d.annotation && d.annotation.created; // 检查是否有标注（通过created时间戳）
+                if (hasAnno) {
+                    annotatedCount++;
+                    Object.keys(scoreNames).forEach(function(key) {
+                        if (d.annotation[key] !== undefined) {
+                            allScores[key].push(d.annotation[key]);
+                        }
+                    });
+                    if (d.annotation.tags && d.annotation.tags.length > 0) {
+                        d.annotation.tags.forEach(function(t) { allTags[t] = (allTags[t] || 0) + 1; });
+                    }
+                }
+                // 单句标注也计入
+                d.lines.forEach(function(l) {
+                    if (l.annotations && l.annotations.created) {
+                        Object.keys(scoreNames).forEach(function(key) {
+                            if (l.annotations[key] !== undefined) {
+                                allScores[key].push(l.annotations[key]);
+                            }
+                        });
+                        if (l.annotations.tags && l.annotations.tags.length > 0) {
+                            l.annotations.tags.forEach(function(t) { allTags[t] = (allTags[t] || 0) + 1; });
+                        }
+                    }
+                });
+            });
+            
+            // 如果没有任何标注数据，显示提示
+            if (annotatedCount === 0 && Object.keys(allTags).length === 0) {
+                var totalScoreCount = 0;
+                Object.keys(scoreNames).forEach(function(key) { totalScoreCount += allScores[key].length; });
+                if (totalScoreCount === 0) {
+                    container.innerHTML = '<div class="no-stats">💡 给对话评分后，这里会显示统计数据</div>';
+                    return;
+                }
+            }
+            
+            // 计算平均分
+            var avgHtml = '<div class="avg-scores">';
+            var totalAvg = 0;
+            var scoreCount = 0;
+            Object.keys(scoreNames).forEach(function(key) {
+                var scores = allScores[key];
+                if (scores.length > 0) {
+                    var avg = scores.reduce(function(a,b){return a+b},0) / scores.length;
+                    totalAvg += avg;
+                    scoreCount++;
+                    var colorClass = avg >= 4 ? 'high' : (avg >= 3 ? 'medium' : 'low');
+                    avgHtml += '<div class="avg-score-item"><span class="label">' + scoreNames[key] + '</span><span class="value ' + colorClass + '">' + avg.toFixed(1) + '</span></div>';
+                } else {
+                    avgHtml += '<div class="avg-score-item"><span class="label">' + scoreNames[key] + '</span><span class="value">-</span></div>';
+                }
+            });
+            avgHtml += '</div>';
+            
+            if (scoreCount > 0) {
+                var overallAvg = totalAvg / scoreCount;
+                avgHtml = '<div style="text-align:center;padding:10px;background:#f8f9fa;border-radius:8px;margin-bottom:12px"><span style="font-size:0.9rem;color:#666">综合平均分</span><br><span style="font-size:1.5rem;font-weight:bold;color:' + (overallAvg >= 4 ? '#27ae60' : (overallAvg >= 3 ? '#f39c12' : '#e74c3c')) + '">' + overallAvg.toFixed(1) + '</span></div>' + avgHtml;
+            }
+            
+            // 标签统计
+            var tagHtml = '<div class="tag-stats">';
+            var sortedTags = Object.keys(allTags).sort(function(a,b){return allTags[b]-allTags[a]});
+            if (sortedTags.length > 0) {
+                sortedTags.slice(0, 8).forEach(function(t) {
+                    tagHtml += '<div class="tag-stat-item"><span class="tag-name">' + t + '</span><span class="tag-count">' + allTags[t] + '</span></div>';
+                });
+            } else {
+                tagHtml += '<div class="no-stats">暂无标签</div>';
+            }
+            tagHtml += '</div>';
+            
+            container.innerHTML = avgHtml + tagHtml;
+            console.log('renderStatsReport: annotatedCount=' + annotatedCount, 'scores=', allScores);
+        }
+        
+        function togglePanel() { document.getElementById('ollamaPanel').classList.toggle('show'); }
+        
+        async function testOllama() {
+            var url = document.getElementById('ollamaUrl').value;
+            try { var r = await fetch(url + '/api/tags'); if (r.ok) alert('连接成功 ✓'); else alert('连接失败'); }
+            catch(e) { alert('连接失败: ' + e.message); }
+        }
+        
+        // Modal drag
+        var isDragging = false;
+        var dragOffset = { x: 0, y: 0 };
+        var modal = document.getElementById('lineModal');
+        var modalContent = document.getElementById('modalContent');
+        var modalHeader = document.getElementById('modalHeader');
+        
+        modalHeader.onmousedown = function(e) {
+            if (e.target.classList.contains('modal-close')) return;
+            isDragging = true;
+            dragOffset.x = e.clientX - modalContent.offsetLeft;
+            dragOffset.y = e.clientY - modalContent.offsetTop;
+            document.body.style.userSelect = 'none';
+        };
+        
+        document.onmousemove = function(e) {
+            if (!isDragging) return;
+            modalContent.style.left = (e.clientX - dragOffset.x) + 'px';
+            modalContent.style.top = (e.clientY - dragOffset.y) + 'px';
+            modalContent.style.margin = 0;
+        };
+        
+        document.onmouseup = function() {
+            isDragging = false;
+            document.body.style.userSelect = '';
+        };
+        
+        function setupModalDrag() {
+            modalContent.style.left = '';
+            modalContent.style.top = '';
+        }
+        
+        // Line annotation modal
+        function openLineAnnotation(idx) {
+            selectedLine = idx;
+            renderEditor();
+            if (curIdx < 0 || selectedLine < 0) { alert('请先选中某句台词'); return; }
+            var d = dialogues[curIdx];
+            var line = d.lines[selectedLine];
+            if (!line) return;
+            currentLineAnno = selectedLine;
+            document.getElementById('modalLineNum').textContent = selectedLine + 1;
+            document.getElementById('modalLinePreview').textContent = (line.speaker || '?') + ': ' + (line.content || '（空）');
+            if (!line.annotations) line.annotations = {};
+            var a = line.annotations;
+            for (var i = 1; i <= 6; i++) {
+                var map = {1:'narrative_coherence',2:'character_consistency',3:'dialogue_naturalness',4:'emotional_expression',5:'game_relevance',6:'length_appropriateness'};
+                var sc = a[map[i]] || 0;
+                var container = document.getElementById('lsb' + i);
+                container.innerHTML = '';
+                for (var s = 0; s <= 5; s++) {
+                    var btn = document.createElement('button');
+                    btn.dataset.s = s;
+                    btn.textContent = s;
+                    btn.onclick = function() { this.parentElement.querySelectorAll('button').forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
+                    if (s === sc) btn.classList.add('active');
+                    container.appendChild(btn);
+                }
+            }
+            var tags = a.tags || [];
+            document.querySelectorAll('#modalPresetTags .preset-tag').forEach(function(t) {
+                t.classList.toggle('active', tags.includes(t.dataset.t));
+                // 不再覆盖onclick，让HTML中绑定的toggleTag生效
+            });
+            document.getElementById('lineSuggestion').value = a.suggestion || '';
+            document.getElementById('lineModal').classList.add('show');
+            setupModalDrag();
+        }
+        
+        function closeLineModal() {
+            document.getElementById('lineModal').classList.remove('show');
+            currentLineAnno = null;
+        }
+        
+        function saveLineAnnotation() {
+            if (curIdx < 0 || currentLineAnno === null) return;
+            var line = dialogues[curIdx].lines[currentLineAnno];
+            if (!line.annotations) line.annotations = {};
+            var a = line.annotations;
+            for (var i = 1; i <= 6; i++) {
+                var map = {1:'narrative_coherence',2:'character_consistency',3:'dialogue_naturalness',4:'emotional_expression',5:'game_relevance',6:'length_appropriateness'};
+                var btn = document.querySelector('#lsb' + i + ' button.active');
+                a[map[i]] = btn ? parseInt(btn.dataset.s) : 0;
+            }
+            var tags = [];
+            document.querySelectorAll('#modalPresetTags .preset-tag.active').forEach(function(t) { tags.push(t.dataset.t); });
+            a.tags = tags;
+            a.suggestion = document.getElementById('lineSuggestion').value;
+            a.updated = new Date().toISOString();
+            a.created = a.created || new Date().toISOString(); // 标记已有标注
+            saveToStorage();
+            closeLineModal();
+            renderEditor();
+            clearUnsavedFlag();
+        }
+        
+        async function aiSuggest() {
+            if (curIdx < 0) { alert('请先选择对话'); return; }
+            var d = dialogues[curIdx];
+            var txt = d.lines.map(function(l) { return l.speaker + ': ' + l.content; }).join('\n');
+            var prompt = '为以下对话评分和建议：\n\n' + txt + '\n\n请分析对话的优缺点，并给出具体的修改建议，控制在200字以内。';
+            try {
+                var text = await callAi(prompt);
+                document.getElementById('suggestionText').value = text.substring(0, 500);
+            } catch(e) { alert('AI失败: ' + e.message); }
+        }
+        
+        async function aiComplete() {
+            if (curIdx < 0) { alert('请先选择对话'); return; }
+            var model = document.getElementById('ollamaModel').value;
+            var insertCount = parseInt(document.getElementById('insertCount').value) || 1;
+            var d = dialogues[curIdx];
+            
+            // 构建完整对话文本
+            var allLines = d.lines.map(function(l, i) { return '[' + (i+1) + '] ' + (l.speaker || '?') + ': ' + l.content; }).join('\n');
+            
+            // 确定插入位置描述
+            var insertDesc = '';
+            if (selectedLine >= 0) {
+                insertDesc = '在第 ' + (selectedLine+1) + ' 句之后插入 ' + insertCount + ' 句新台词，';
+            } else {
+                insertDesc = '在末尾续写 ' + insertCount + ' 句新台词，';
+            }
+            
+            var prompt = '【完整对话上下文】\n' + allLines + '\n\n' +
+                '【任务】' + insertDesc + '使对话连贯自然。\n\n' +
+                '【要求】\n' +
+                '1. 仔细阅读上面的完整对话，理解整体剧情和角色\n' +
+                '2. 新台词要符合前面所有句子的风格和角色性格\n' +
+                '3. 新台词末尾必须能自然衔接后面的句子\n' +
+                '4. 只输出新台词，严格按"角色名: 台词"格式，每句一行\n' +
+                '5. 不要输出任何解释或说明\n\n' +
+                '【新台词】';
+            
+            var resultDiv = document.getElementById('completeResult');
+            resultDiv.innerHTML = '<div class="loading-overlay show"><div class="loading-box"><div class="spinner"></div><p>AI生成中...</p></div></div>';
+            try {
+                var text = await callAi(prompt);
+                console.log('AI原始输出:', text);
+                console.log('文本长度:', text ? text.length : 0);
+                
+                if (!text || text.trim().length === 0) {
+                    resultDiv.innerHTML = '<div style="background:#f8d7da;padding:15px;border-radius:8px;color:#721c24">⚠️ AI返回空响应<br><small>请检查API配置和网络连接</small></div>';
+                    return;
+                }
+                
+                var newLines = parseAiOutput(text);
+                console.log('解析后的新台词:', newLines);
+                if (newLines.length > 0) {
+                    if (newLines.length > insertCount) newLines = newLines.slice(0, insertCount);
+                    var insertIdx = selectedLine >= 0 ? selectedLine + 1 : d.lines.length;
+                    // 标记为AI生成
+                    newLines.forEach(function(l, i) {
+                        l.isAiGenerated = true;
+                        var apiType = document.getElementById('apiType').value;
+                        l.aiModel = apiType + '/' + model;
+                        l.aiTimestamp = new Date().toISOString();
+                    });
+                    newLines.forEach(function(l, i) { d.lines.splice(insertIdx + i, 0, l); });
+                    selectedLine = insertIdx + newLines.length - 1;
+                    renderEditor();
+                    saveToStorage();
+                    resultDiv.innerHTML = '<div style="background:#d4edda;padding:15px;border-radius:8px;color:#155724">✓ 已插入 ' + newLines.length + ' 句AI台词 <span style="font-size:0.8rem">🤖</span></div>';
+                    markAsChanged();
+                } else {
+                    resultDiv.innerHTML = '<div style="background:#f8d7da;padding:15px;border-radius:8px;color:#721c24">⚠️ 解析失败（AI输出格式不对）<br><small>原始输出: ' + esc(text.substring(0, 150)) + '</small><br><small style="color:#666">请确保返回格式为"角色: 台词"每行一句</small></div>';
+                }
+            } catch(e) { 
+                console.error('AI补全错误:', e);
+                resultDiv.innerHTML = '<div style="background:#f8d7da;padding:15px;border-radius:8px;color:#721c24">⚠️ 失败: ' + e.message + '<br><small>检查浏览器控制台查看详细日志</small></div>'; 
+            }
+        }
+        
+        function parseAiOutput(text) {
+            var lines = [];
+            text = text.replace(/```[\s\S]*?```/g, '').replace(/\*\*/g, '');
+            var pattern = /^([^:\n]+):\s*(.+)$/gm;
+            var match;
+            while ((match = pattern.exec(text)) !== null) {
+                var speaker = match[1].trim();
+                var content = match[2].trim();
+                if (speaker && content && speaker.length < 50) lines.push({speaker:speaker, content:content});
+            }
+            if (lines.length === 0) {
+                text.split('\n').forEach(function(l) {
+                    l = l.trim();
+                    if (l && l.length > 2) lines.push({speaker:'', content:l});
+                });
+            }
+            return lines;
+        }
+        
+        function exportData() {
+            var exp = { dialogues: dialogues, exported: new Date().toISOString(), version:'1.0' };
+            var b = new Blob([JSON.stringify(exp,null,2)], {type:'application/json'});
+            var a = document.createElement('a');
+            a.href = URL.createObjectURL(b);
+            a.download = getFileName('dialogue-annotations');
+            a.click();
+            URL.revokeObjectURL(a.href);
+        }
+        
+        function clearAllData() {
+            if (confirm('清空所有数据？')) { dialogues = []; curIdx = -1; localStorage.removeItem('d_data'); localStorage.removeItem('d_unsaved'); renderDialogueList(); renderEditor(); updateStats(); hasUnsavedChanges = false; }
+        }
+        
+        var hasUnsavedChanges = false;
+        window.onbeforeunload = function(e) {
+            if (hasUnsavedChanges) {
+                var message = '有未保存的更改，是否导出JSON备份？';
+                e.returnValue = message;
+                return message;
+            }
+        };
+        
+        function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+        
+        // ===== 文件保存/加载 =====
+        var DESKTOP_DATA_PATH = 'C:\\Users\\wzt\\Desktop\\DialogueAnnotatorData\\data.json';
+        
+        function getFileName(prefix) {
+            var now = new Date();
+            var pad = function(n) { return n < 10 ? '0' + n : n; };
+            var timestamp = now.getFullYear() + '-' + pad(now.getMonth()+1) + '-' + pad(now.getDate()) + '-' + pad(now.getHours()) + pad(now.getMinutes()) + pad(now.getSeconds());
+            return prefix + '-' + timestamp + '.json';
+        }
+        
+        async function saveToFile() {
+            try {
+                var data = {
+                    dialogues: dialogues,
+                    savedAt: new Date().toISOString(),
+                    version: '1.0'
+                };
+                
+                var fileName = 'dialogue-data-' + new Date().toISOString().split('T')[0] + '.json';
+                
+                // 尝试使用 File System Access API (Chrome)
+                if (window.showSaveFilePicker) {
+                    var handle = await window.showSaveFilePicker({
+                        suggestedName: fileName,
+                        types: [{ description: 'JSON文件', accept: {'application/json': ['.json']} }]
+                    });
+                    var writable = await handle.createWritable();
+                    await writable.write(JSON.stringify(data, null, 2));
+                    await writable.close();
+                    alert('✓ 已保存到: ' + handle.name);
+                } else {
+                    // 回退到下载方式
+                    var blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                    var url = URL.createObjectURL(blob);
+                    var a = document.createElement('a');
+                    a.href = url;
+                    a.download = fileName;
+                    a.click();
+                    URL.revokeObjectURL(a.href);
+                    alert('✓ 文件已下载: ' + fileName + '\\n\\n请手动保存到:\\n桌面\\\\DialogueAnnotatorData\\\\data.json');
+                }
+            } catch(e) {
+                if (e.name !== 'AbortException') {
+                    alert('保存失败: ' + e.message);
+                }
+            }
+        }
+        
+        function loadFromFile(event, mergeMode) {
+            try {
+                var file = event.target.files[0];
+                if (!file) return;
+                var reader = new FileReader();
+                reader.onload = function(e) {
+                    try {
+                        var data = JSON.parse(e.target.result);
+                        if (data.dialogues) {
+                            var incomingDialogues = data.dialogues;
+                            
+                            if (mergeMode === true && dialogues.length > 0) {
+                                // 合并模式
+                                var result = mergeDialogues(dialogues, incomingDialogues);
+                                dialogues = result.merged;
+                                alert('✓ 合并完成！\n' + 
+                                    '- 新增对话: ' + result.added + '\n' + 
+                                    '- 跳过重复: ' + result.skipped + '\n' + 
+                                    '- 总对话数: ' + dialogues.length);
+                            } else {
+                                // 完全替换模式
+                                dialogues = incomingDialogues;
+                                alert('✓ 导入成功，共 ' + dialogues.length + ' 条对话');
+                            }
+                            
+                            curIdx = -1;
+                            renderDialogueList();
+                            renderEditor();
+                            updateStats();
+                            saveToStorage();
+                        }
+                    } catch(err) {
+                        alert('解析失败: ' + err.message);
+                    }
+                };
+                reader.readAsText(file);
+            } catch(e) {
+                alert('读取失败: ' + e.message);
+            }
+        }
+        
+        // 合并两个对话数据集
+        function mergeDialogues(existing, incoming) {
+            var added = 0;
+            var skipped = 0;
+            var existingMap = {};
+            
+            // 现有对话建立索引
+            existing.forEach(function(d) { existingMap[d.id] = d; });
+            
+            // 遍历新数据
+            incoming.forEach(function(d) {
+                if (!d.id) { d.id = 'c' + Date.now() + Math.random().toString(36).substr(2, 9); }
+                
+                if (existingMap[d.id]) {
+                    // 对话已存在，合并标注
+                    skipped++;
+                    var existingDialogue = existingMap[d.id];
+                    
+                    // 合并评分（取平均）
+                    var scoreKeys = ['narrative_coherence', 'character_consistency', 'dialogue_naturalness', 'emotional_expression', 'game_relevance', 'length_appropriateness'];
+                    scoreKeys.forEach(function(key) {
+                        if (d.annotation && d.annotation[key] > 0) {
+                            if (existingDialogue.annotation[key] > 0) {
+                                // 两者都有评分，取平均
+                                existingDialogue.annotation[key] = Math.round((existingDialogue.annotation[key] + d.annotation[key]) / 2);
+                            } else {
+                                existingDialogue.annotation[key] = d.annotation[key];
+                            }
+                        }
+                    });
+                    
+                    // 合并标签
+                    if (d.annotation && d.annotation.tags && d.annotation.tags.length > 0) {
+                        if (!existingDialogue.annotation.tags) existingDialogue.annotation.tags = [];
+                        d.annotation.tags.forEach(function(t) {
+                            if (!existingDialogue.annotation.tags.includes(t)) {
+                                existingDialogue.annotation.tags.push(t);
+                            }
+                        });
+                    }
+                    
+                    // 合并修改建议（都保留，用换行分隔）
+                    if (d.annotation && d.annotation.suggestion && existingDialogue.annotation.suggestion) {
+                        if (d.annotation.suggestion !== existingDialogue.annotation.suggestion) {
+                            existingDialogue.annotation.suggestion += '\n---\n' + d.annotation.suggestion;
+                        }
+                    } else if (d.annotation && d.annotation.suggestion) {
+                        existingDialogue.annotation.suggestion = d.annotation.suggestion;
+                    }
+                    
+                } else {
+                    // 新对话
+                    existing.push(d);
+                    existingMap[d.id] = d;
+                    added++;
+                }
+            });
+            
+            return { merged: existing, added: added, skipped: skipped };
+        }
+        
+        function autoLoadFromDesktop() {
+            // 浏览器无法自动读取本地文件，需要用户手动导入
+            // 这个功能需要使用File System Access API或后台服务
+            console.log('自动读取功能需要本地服务器支持，或请手动导入桌面文件');
+        }
+        
+        function markAsChanged() {
+            hasUnsavedChanges = true;
+            localStorage.setItem('d_unsaved', 'true');
+            saveToStorage();
+        }
+        
+        function clearUnsavedFlag() {
+            hasUnsavedChanges = false;
+            localStorage.removeItem('d_unsaved');
+        }
+        
+        // 页面加载时初始化
+        load();
+        
+        // Enter快捷键保存
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.altKey) {
+                // 如果弹窗打开，Enter保存并关闭弹窗
+                if (document.getElementById('lineModal').classList.contains('show')) {
+                    // 检查是否在自定义标签输入框中
+                    if (e.target.id === 'modalCustomTagInput') {
+                        e.preventDefault();
+                        addModalCustomTag();
+                        return;
+                    }
+                    e.preventDefault();
+                    saveLineAnnotation();
+                    return;
+                }
+                // 自定义标签输入框中按Enter添加标签
+                if (e.target.id === 'customTagInput') {
+                    e.preventDefault();
+                    addCustomTag();
+                    return;
+                }
+                // 排除输入框中的Enter（textarea、input）
+                var tag = e.target.tagName.toLowerCase();
+                if (tag === 'textarea' || (tag === 'input' && e.target.type !== 'checkbox' && e.target.type !== 'radio')) {
+                    return; // 输入框中的Enter正常输入
+                }
+                // 在标注模式下，Enter保存
+                if (curMode === 'anno' && curIdx >= 0) {
+                    e.preventDefault();
+                    saveDialogue();
+                }
+            }
+        });
+    </script>
+</body>
+</html>
